@@ -2,6 +2,8 @@
 
 #include<string.h>
 #include<stdlib.h>
+#include<stdio.h>
+#include<math.h>
 
 #define A 0
 #define B 1
@@ -49,11 +51,13 @@ void A_output(message)
   struct msg message;
 {
 	if(Apkt.seqnum != Apkt.acknum){
+		printf("Ack not here yet \n");
 		return;
 	}
 	else{
 		//prepare packet to send
 		struct pkt spkt;
+		message.data[19] = '\0';
 		strcpy(spkt.payload,message.data);
 		spkt.seqnum = abs(Apkt.seqnum -1);
 		spkt.acknum = Apkt.acknum;
@@ -72,6 +76,7 @@ void A_input(packet)
   struct pkt packet;
 {
 	if((packet.acknum == Apkt.acknum) || (!(check_chk(packet)))){ //packet that was sent got corrupted || Ack corrupted
+		printf(" Bad stuff at A\n");
 		stoptimer(A);
 		resend = 1;
 		tolayer3(A,Apkt);
@@ -82,18 +87,20 @@ void A_input(packet)
 	stoptimer(A);
 	rtime = get_sim_time();
 	Apkt.acknum = packet.acknum;
+	Apkt.checksum = check_gen(Apkt);
 	//RTT estimation
 	if(!resend){
-		ertt = (1-ALPHA)*ertt +	ALPHA*(abs(rtime-stime)) ;
-		drtt = (1-BETA)*drtt + BETA*(abs(abs(rtime-stime) - ertt));
+		ertt = (1-ALPHA)*ertt +	ALPHA*(fabs(rtime-stime)) ;
+		drtt = (1-BETA)*drtt + BETA*(fabs(fabs(rtime-stime) - ertt));
 	}
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt()
 {
+	printf(" Timer gone wrong\n");
 	resend = 1;
-	ertt = 1.5 * ertt;
+	//ertt = 1.5 * ertt;
 	tolayer3(A,Apkt);
 	starttimer(A,(ertt + 4*drtt));
 }  
@@ -104,7 +111,7 @@ void A_init()
 {
 	Apkt.seqnum = 1;
 	Apkt.acknum = 1;
-	ertt = 12.0;
+	ertt = 15.0;
 	drtt = 0;
 	resend = 0;
 }
@@ -116,12 +123,15 @@ void B_input(packet)
   struct pkt packet;
 {
 	Bpkt.checksum = check_gen(Bpkt);
+	packet.payload[19] = '\0';
 	if(!(check_chk(packet))){ // corrupted packet received
+		printf(" Bad stuff at B1\n");
 		tolayer3(B,Bpkt);
 		return;
 	}
-	if(packet.seqnum == Bpkt.seqnum){ // Corrupted Packet recived but somehow checksum works out.
-		tolayer3(B,Bpkt);//This case should actually be for packet loss. But in ABT, packet loss possibility at the receiver cannot exist
+	if(packet.seqnum == Bpkt.seqnum){ // Corrupted Packet recived but somehow checksum works out or timer expired and resent
+		printf(" Bad stuff at B2\n");
+		tolayer3(B,Bpkt);
 		return;
 	}
 	//Expected Sequence number received
