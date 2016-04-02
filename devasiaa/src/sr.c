@@ -73,7 +73,7 @@ void A_output(message)
 	seq=Abase;
 	while((seq < (Abase+winsize))&&(seq<top)){
 		if(Apkt[seq].seqnum != Apkt[seq].acknum){
-			printf("Sending Seq %d\n", seq); 
+			//printf("Sending Seq %d\n", seq); 
 			tolayer3(A,Apkt[seq]);
 			if(Abase == seq){
 				starttimer(A,ertt);
@@ -94,29 +94,29 @@ void A_input(packet)
 	if(!(check_chk(packet))){//Corrupted ack packet received
 		return;
 	}
-	printf("Ack received %d\n", packet.acknum);
-	printf("Current Base %d\n", Abase);
+	//printf("Ack received %d\n", packet.acknum);
+	//printf("Current Base %d\n", Abase);
 	Apkt[packet.acknum].acknum = packet.acknum;
-	//printf("Ack recieved %d\n", packet.acknum);
+	////printf("Ack recieved %d\n", packet.acknum);
 
 	if(packet.acknum > maxack){
 		maxack = packet.acknum;
-		printf("Max Ack %d\n",maxack);
+		//printf("Max Ack %d\n",maxack);
 	}
 	if(packet.acknum < Abase){
-		printf("acknum less that base\n");
+		//printf("acknum less that base\n");
 		flg = 1;
 	}
 	
 	if(packet.acknum == tseq){
-		printf("Stopping timer %d\n",tseq);
+		//printf("Stopping timer %d\n",tseq);
 		stoptimer(A);
 	}
 	
 	while(Apkt[Abase].acknum == Apkt[Abase].seqnum){  
 		Abase++;
 	}
-	printf("New Base %d\n",Abase);
+	//printf("New Base %d\n",Abase);
 
 	if(!flg){
 		float min;
@@ -124,16 +124,16 @@ void A_input(packet)
 			min = timer[Abase];
 			for(int i = Abase; ((i < (Abase+winsize))&&(i<seq)); i++){
 				if(Apkt[i].acknum != Apkt[i].seqnum){
-					printf("Seq num %d ",i);
+					//printf("Seq num %d ",i);
 					rtime =get_sim_time();
 					if( (i < maxack) || ((rtime-timer[i]) >= ertt)){
-						printf("resent\n");
+						//printf("resent\n");
 						tolayer3(A,Apkt[i]);
 						timer[i] = get_sim_time();
 					}
 					else{
 						if(timer[i] < min){
-							printf("used to set min\n");
+							//printf("used to set min\n");
 							min = timer[i];
 							ttseq = i;
 						}
@@ -145,7 +145,7 @@ void A_input(packet)
 	else{
 		for(int i = Abase; i < maxack; i++){
 			if(Apkt[i].acknum != Apkt[i].seqnum){
-				//printf("Retransmitting from 2input %d\n",i);
+				////printf("Retransmitting from 2input %d\n",i);
 				tolayer3(A,Apkt[i]);
 				timer[i] = get_sim_time();
 			}
@@ -153,8 +153,8 @@ void A_input(packet)
 	}
 	if((packet.acknum == tseq) && (ttseq != -1)){
 		tseq = ttseq;
-		printf("Seq num %d ",tseq);
-		printf("Timer set in input %8.4f\n",(rtime-timer[tseq]));
+		//printf("Seq num %d ",tseq);
+		//printf("Timer set in input %8.4f\n",(rtime-timer[tseq]));
 		starttimer(A,(rtime - timer[tseq]));
 	}
 }
@@ -162,7 +162,7 @@ void A_input(packet)
 /* called when A's timer goes off */
 void A_timerinterrupt()
 {
-	//printf("TimerInterrupt %d\n",tseq);
+	////printf("TimerInterrupt %d\n",tseq);
 	float min = timer[((Abase==tseq)?(Abase+1):Abase)];
 	int ttseq = -1;
 	tolayer3(A,Apkt[tseq]);
@@ -172,16 +172,16 @@ void A_timerinterrupt()
 			continue;
 		}
 		if(Apkt[i].acknum != Apkt[i].seqnum){
-			printf("ISR Seq num %d ",i);
+			//printf("ISR Seq num %d ",i);
 			rtime =get_sim_time();
 			if( (i < maxack) || ((rtime-timer[i]) >= ertt) ){
-				printf("resent\n");
+				//printf("resent\n");
 				tolayer3(A,Apkt[i]);
 				timer[i] = get_sim_time();
 			}
 			else{
 				if(timer[i] < min){
-					printf("used to set min\n");
+					//printf("used to set min\n");
 					min = timer[i];
 					ttseq = i;
 				}
@@ -190,13 +190,13 @@ void A_timerinterrupt()
 	}
 	if(ttseq != -1){
 		tseq = ttseq;
-		printf("Seq num %d ",tseq);
-		printf("Timer set in ISR %8.4f\n",(rtime-timer[tseq]));
+		//printf("Seq num %d ",tseq);
+		//printf("Timer set in ISR %8.4f\n",(rtime-timer[tseq]));
 		starttimer(A,(rtime - timer[tseq]));
 	}
 	else{
-		printf("Seq num %d ",tseq);
-		printf("Timer set in ISR %8.4f\n",(ertt));
+		//printf("Seq num %d ",tseq);
+		//printf("Timer set in ISR %8.4f\n",(ertt));
 		starttimer(A,ertt);
 	}
 }  
@@ -228,7 +228,7 @@ void B_input(packet)
 		tolayer3(B,Bbpkt);
 		return;
 	}
-	printf("Packet number received %d\n",packet.seqnum);
+	//printf("Packet number received %d\n",packet.seqnum);
 	if((packet.seqnum < Bbase+winsize)){
 		packet.acknum = packet.seqnum;
 		Bpkt[packet.acknum] = packet;
