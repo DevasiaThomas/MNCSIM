@@ -27,12 +27,10 @@
 
 static struct pkt Apkt[1500];//already processed packets
 static struct pkt Bpkt[1500];
+static struct pkt Bbpkt;
 static float timer[1500];
 static float ertt;  // estimated RTT
-static float drtt;  // deviation in RTT
-static float stime; // time when packet sent
-static float rtime; // time when packet recieved
-static int resend[1500];
+static float rtime;
 static int top;
 static int Abase;
 static int Bbase;
@@ -48,7 +46,7 @@ static int winsize;
 /* called from layer 5, passed the data to be sent to other side */
 int check_gen(struct pkt pack){
 	pack.checksum = pack.seqnum + pack.acknum;
-	for(int i=0; pack.payload[i]!='\0'; i++){
+	for(int i=0; i<20; i++){
 		pack.checksum += (int)pack.payload[i];
 	}
 	return pack.checksum;
@@ -67,21 +65,22 @@ void A_output(message)
 	if(top >= 1500){
 		return;
 	}
-	message.data[19]= '\0';
 	strcpy(Apkt[top].payload,message.data);
 	Apkt[top].seqnum = seq;
 	Apkt[top].acknum = -1;
 	Apkt[top].checksum = check_gen(Apkt[top]);
 	top++;
+	seq=Abase;
 	while((seq < (Abase+winsize))&&(seq<top)){
-		resend[seq] = 0;
-		tolayer3(A,Apkt[seq]);
-		//printf("Sent seq: %d\n",seq);
-		if(Abase == seq){
-			starttimer(A,(ertt + 4*drtt));
-			tseq = seq;
-		}	
-		timer[seq] = get_sim_time();
+		if(Apkt[seq].seqnum != Apkt[seq].acknum){
+			printf("Sending Seq %d\n", seq); 
+			tolayer3(A,Apkt[seq]);
+			if(Abase == seq){
+				starttimer(A,ertt);
+				tseq = seq;
+			}	
+			timer[seq] = get_sim_time();
+		}
 		seq++;
 	}
 }
@@ -90,72 +89,73 @@ void A_output(message)
 void A_input(packet)
   struct pkt packet;
 {
-	rtime = get_sim_time();
 	int flg = 0;
-	
+	int ttseq = -1;
 	if(!(check_chk(packet))){//Corrupted ack packet received
 		return;
 	}
-
-	if(!resend[packet.acknum]){
-		ertt = (1-ALPHA)*ertt +	ALPHA*(fabs(rtime-timer[packet.acknum])) ;
-		drtt = (1-BETA)*drtt + BETA*(fabs(fabs(rtime-timer[packet.acknum]) - ertt));
-		//printf("ertt :%8.4f drtt:%8.4f\n",ertt,drtt);
-	}
-
+	printf("Ack received %d\n", packet.acknum);
+	printf("Current Base %d\n", Abase);
 	Apkt[packet.acknum].acknum = packet.acknum;
 	//printf("Ack recieved %d\n", packet.acknum);
 
 	if(packet.acknum > maxack){
 		maxack = packet.acknum;
-	}
-	if(packet.acknum > Abase){
-		flg =1;
-	}
-	
-	if(packet.acknum == Abase){
-		stoptimer(A);
-	}
-	while(Apkt[Abase].acknum == Apkt[Abase].seqnum){  
-		//printf("Advancing base\n"); 
-		Abase++;
+		printf("Max Ack %d\n",maxack);
 	}
 	if(packet.acknum < Abase){
+		printf("acknum less that base\n");
+		flg = 1;
+	}
+	
+	if(packet.acknum == tseq){
+		printf("Stopping timer %d\n",tseq);
+		stoptimer(A);
+	}
+	
+	while(Apkt[Abase].acknum == Apkt[Abase].seqnum){  
+		Abase++;
+	}
+	printf("New Base %d\n",Abase);
+
+	if(!flg){
 		float min;
 		if(Abase != seq){
 			min = timer[Abase];
 			for(int i = Abase; ((i < (Abase+winsize))&&(i<seq)); i++){
 				if(Apkt[i].acknum != Apkt[i].seqnum){
+					printf("Seq num %d ",i);
 					rtime =get_sim_time();
-					if( (i < maxack) || ((rtime-timer[i]) >= (ertt + 4*drtt))){
-						//printf("Retransmitting from 1input %d\n",i);
+					if( (i < maxack) || ((rtime-timer[i]) >= ertt)){
+						printf("resent\n");
 						tolayer3(A,Apkt[i]);
-						//starttimer(A,(ertt + 4*drtt));
 						timer[i] = get_sim_time();
-						resend[i] = 1;
 					}
 					else{
 						if(timer[i] < min){
+							printf("used to set min\n");
 							min = timer[i];
-							tseq = i;
+							ttseq = i;
 						}
 					}
 				}
 			}
-			//printf("Input Min:%8.8f tseq:%d\n", min,tseq);
-			rtime = get_sim_time();
-			starttimer(A,(fabs((ertt + 4*drtt) - fabs(rtime - min))));
 		}
 	}
-	else if(flg == 1){
+	else{
 		for(int i = Abase; i < maxack; i++){
 			if(Apkt[i].acknum != Apkt[i].seqnum){
 				//printf("Retransmitting from 2input %d\n",i);
 				tolayer3(A,Apkt[i]);
 				timer[i] = get_sim_time();
-				resend[i] = 1;
 			}
 		}
+	}
+	if((packet.acknum == tseq) && (ttseq != -1)){
+		tseq = ttseq;
+		printf("Seq num %d ",tseq);
+		printf("Timer set in input %8.4f\n",(rtime-timer[tseq]));
+		starttimer(A,(rtime - timer[tseq]));
 	}
 }
 
@@ -164,58 +164,56 @@ void A_timerinterrupt()
 {
 	//printf("TimerInterrupt %d\n",tseq);
 	float min = timer[((Abase==tseq)?(Abase+1):Abase)];
-	int count = 0;
+	int ttseq = -1;
 	tolayer3(A,Apkt[tseq]);
 	timer[tseq] = get_sim_time();
-	resend[tseq] = 1;
 	for(int i = Abase; ((i < (Abase+winsize))&&(i<seq)); i++){
 		if(i == tseq){
 			continue;
 		}
-		count++;
 		if(Apkt[i].acknum != Apkt[i].seqnum){
+			printf("ISR Seq num %d ",i);
 			rtime =get_sim_time();
-			if( (i < maxack) || ((rtime-timer[i]) >= (ertt + 4*drtt)) ){
-				//printf("Retransmitting from timer %d\n",i);
+			if( (i < maxack) || ((rtime-timer[i]) >= ertt) ){
+				printf("resent\n");
 				tolayer3(A,Apkt[i]);
-				//starttimer(A,(ertt + 4*drtt));
 				timer[i] = get_sim_time();
-				resend[i] = 1;
 			}
 			else{
 				if(timer[i] < min){
+					printf("used to set min\n");
 					min = timer[i];
-					tseq = i;
+					ttseq = i;
 				}
 			}
 		}
 	}
-	//printf("Timer Min:%8.8f tseq:%d\n", min,tseq);
-	rtime = get_sim_time();
-	//if(count > 0){
-		//printf("Newtimer1:%8.8f\n",(fabs((ertt + 4*drtt) - fabs(rtime - min))>2)?(fabs((ertt + 4*drtt) - fabs(rtime - min))):2.0);
-		//starttimer(A,(fabs((ertt + 4*drtt) - fabs(rtime - min))));
-	//}
-	//else{
-		//printf("Newtimer2:%8.8f\n",(fabs(ertt + 4*drtt)));
-		starttimer(A,(fabs(ertt + 4*drtt))/2.0);
-	//}
+	if(ttseq != -1){
+		tseq = ttseq;
+		printf("Seq num %d ",tseq);
+		printf("Timer set in ISR %8.4f\n",(rtime-timer[tseq]));
+		starttimer(A,(rtime - timer[tseq]));
+	}
+	else{
+		printf("Seq num %d ",tseq);
+		printf("Timer set in ISR %8.4f\n",(ertt));
+		starttimer(A,ertt);
+	}
 }  
 
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
 void A_init()
 {
-	ertt = 14.0;
-	drtt = 0;
+	ertt = 12.0;
 	for(int i = 0; i < 1500; i++){
-		resend[i] = 0;
 		Apkt[i].seqnum = i;
 		Apkt[i].acknum = -1;
 	}
-	top = 0;
-	Abase = 0;
-	seq = 0;
+	top = 1;
+	Abase = 1;
+	tseq = 1;
+	seq = 1;
 	maxack = -1;
 	winsize = getwinsize();
 }
@@ -226,23 +224,21 @@ void A_init()
 void B_input(packet)
   struct pkt packet;
 {
-	packet.payload[19] ='\0';
 	if(!(check_chk(packet))){//Corrupted ack packet received
+		tolayer3(B,Bbpkt);
 		return;
 	}
-	if((packet.seqnum >= Bbase) && (packet.seqnum < Bbase+winsize)){
-		//printf("Packet received %d\n",packet.seqnum);
+	printf("Packet number received %d\n",packet.seqnum);
+	if((packet.seqnum < Bbase+winsize)){
 		packet.acknum = packet.seqnum;
 		Bpkt[packet.acknum] = packet;
-		//tolayer5(B,packet.payload);
 		Bpkt[packet.acknum].checksum = check_gen(Bpkt[packet.acknum]);
-		//printf("Ack %d\n",packet.acknum);
 		tolayer3(B,Bpkt[packet.acknum]);
 		while(Bpkt[Bbase].seqnum == Bpkt[Bbase].acknum){
-			//printf("Sent %d to layer5  \n",Bbase);
 			tolayer5(B,Bpkt[Bbase].payload);
 			Bbase++;
 		}
+		Bbpkt = Bpkt[(Bbase-1)];
 	}	
 }
 
@@ -251,7 +247,11 @@ void B_input(packet)
 void B_init()
 {
 	winsize = getwinsize();
-	Bbase=0;
+	strcpy(Bbpkt.payload,"11111111111111111111");
+	Bbpkt.seqnum = 0;
+	Bbpkt.acknum = 0;
+	Bbpkt.checksum = check_gen(Bbpkt);
+	Bbase=1;
 	for(int i = 0; i < 1500; i++){
 		Bpkt[i].seqnum = i;
 		Bpkt[i].acknum = -1;		

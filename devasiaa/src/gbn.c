@@ -26,22 +26,17 @@
 static struct pkt Apkt[1500];//already processed packets
 static struct pkt Bpkt;
 static float ertt;  // estimated RTT
-static float drtt;  // deviation in RTT
-static float stime; // time when packet sent
-static float rtime; // time when packet recieved
-static int resend;
 static int top;
 static int base;
 static int seq;
 static int winsize;
-//static int Bstart;
 
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
 
 /* called from layer 5, passed the data to be sent to other side */
 int check_gen(struct pkt pack){
 	pack.checksum = pack.seqnum + pack.acknum;
-	for(int i=0; pack.payload[i]!='\0'; i++){
+	for(int i=0; i<20; i++){
 		pack.checksum += (int)pack.payload[i];
 	}
 	return pack.checksum;
@@ -61,18 +56,16 @@ void A_output(message)
 	if(top >= 1500){
 		return;
 	}
-	message.data[19]= '\0';
 	strcpy(Apkt[top].payload,message.data);
 	Apkt[top].seqnum = seq;
 	Apkt[top].acknum = -1;
 	Apkt[top].checksum = check_gen(Apkt[top]);
 	top++;
+	seq = base;
 	while((seq < (base+winsize))&&(seq<top)){
-		resend = 0;
 		tolayer3(A,Apkt[seq]);
 		if(base == seq){
-			starttimer(A,(ertt + 4*drtt));
-			stime = get_sim_time(); // for re-calculating rtt;
+			starttimer(A,ertt);
 		}
 		seq++;
 	}
@@ -82,44 +75,30 @@ void A_output(message)
 void A_input(packet)
   struct pkt packet;
 {
+	int bflag = 0;
 	if (!(check_chk(packet))){//Corrupted packet received
 		return;
 	}
-
-	if(packet.acknum < base){//1st packet in window was lost/corrupted
-		stoptimer(A);
-		resend = 1;
-		for(int i = base; i < seq; i++){
-			tolayer3(A,Apkt[i]);
-			if(i == base){
-				starttimer(A,(ertt + 4*drtt));
-			}
-		}	
-		return;
-	}
-
+	
 	base = packet.acknum + 1;
 	stoptimer(A);
 
 	if(base != seq){
-		starttimer(A,(ertt + 4*drtt));	
-	}
-	else{
-		if(!resend){
-			ertt = (1-ALPHA)*ertt +	ALPHA*(fabs(rtime-stime)) ;
-			drtt = (1-BETA)*drtt + BETA*(fabs(fabs(rtime-stime) - ertt));
-		}
+		starttimer(A,ertt);
+		while((seq < (base+winsize))&&(seq<top)){
+			tolayer3(A,Apkt[seq]);
+			seq++;
+		}		
 	}	
 }
 
 /* called when A's timer goes off */
 void A_timerinterrupt()
 {
-	resend = 1;
 	for(int i = base; i < seq; i++){
 		tolayer3(A,Apkt[i]);
 		if(i == base){
-			starttimer(A,(ertt + 4*drtt));
+			starttimer(A,ertt);
 		}
 	}		
 }  
@@ -128,12 +107,10 @@ void A_timerinterrupt()
 /* entity A routines are called. You can use it to do any initialization */
 void A_init()
 {
-	ertt = 13.0;
-	drtt = 0;
-	resend = 0;
-	top = 0;
-	base = 0;
-	seq = 0;
+	ertt = 10.0;
+	top = 1;
+	base = 1;
+	seq = 1;
 	winsize = getwinsize();
 }
 
@@ -143,24 +120,16 @@ void A_init()
 void B_input(packet)
   struct pkt packet;
 {
-	Bpkt.checksum = check_gen(Bpkt);
-	packet.payload[19] = '\0';
-
-	if(!(check_chk(packet))){ // corrupted packet received
-		printf(" Bad stuff at B1\n");
+	if(!(check_chk(packet))){ 
 		tolayer3(B,Bpkt);
 		return;
 	}
-
 	if(packet.seqnum == Bpkt.seqnum){
 		tolayer5(B,packet.payload);
 		Bpkt.seqnum++;
 		Bpkt.acknum++;
-		//if(packet.sequm == (Bstart + winsize)){
 		Bpkt.checksum = check_gen(Bpkt);
 		tolayer3(B,Bpkt);
-		//Bstart = Bpkt.seqnum;
-		//}
 	}
 	else{
 		tolayer3(B,Bpkt);
@@ -171,8 +140,9 @@ void B_input(packet)
 /* entity B routines are called. You can use it to do any initialization */
 void B_init()
 {
-	Bpkt.seqnum = 0;
-	Bpkt.acknum = -1;
-	Bpkt.payload[0] = '\0';
-	//Bstart = 0;
+	Bpkt.seqnum = 1;
+	Bpkt.acknum = 0;
+	strcpy(Bpkt.payload,"11111111111111111111");
+	Bpkt.checksum = check_gen(Bpkt);
+;
 }
